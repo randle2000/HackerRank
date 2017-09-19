@@ -10,17 +10,14 @@
     // This is a "method-only" submission. 
     // You only need to complete this method. 
 Node Reverse(Node head) {
+    Node currNode = head, nextNode = null, prevNode = null;
     
-    Node tmp = new Node();
-
-    Node cur = head;
-    while (cur != null) {
-		Node node = cur;
-        cur = cur.next;
-		node.next = tmp.next;
-		tmp.next = node;
-	}
-
-	return tmp.next;
-
+    while(currNode!=null){
+         nextNode = currNode.next;
+         currNode.next = prevNode;
+         prevNode = currNode;
+         currNode = nextNode;
+    }
+    
+    return prevNode;
 }
