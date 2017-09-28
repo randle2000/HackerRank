@@ -1,0 +1,23 @@
+https://www.hackerrank.com/challenges/find-the-median/problem
+Given a list of numbers, can you find the median?
+
+Input Format
+
+There will be two lines of input:
+
+ - the size of the array
+ -  numbers that makes up the array
+Constraints
+
+ is odd
+Output Format
+
+Output one integer, the median.
+
+Sample Input 0
+
+7
+0 1 2 4 6 5 3
+Sample Output 0
+
+3
