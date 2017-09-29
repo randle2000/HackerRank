@@ -91,29 +91,23 @@ class Graph {
 	 * @param firstId of first node to visit
 	 * @return IDs of all visited nodes 
 	 */
-	public Set<Integer> visitRegion(Integer firstId) {
-		Set<Integer> visited = new HashSet<>();
+	public void visitRegion(Integer firstId) {
 		Node firstNode = getNode(firstId);
 		if (firstNode == null)
-			return visited; 
+			return; 
 		Queue<Node> nextToVisit = new LinkedList<>();
 		nextToVisit.add(firstNode);
 		firstNode.setDepth(0);
 		while (!nextToVisit.isEmpty()) {
 			Node node = nextToVisit.remove();
-			Integer id = node.getId();
-			if (visited.contains(id))
-				continue;
-			visited.add(id);
 			
 			int depth = node.getDepth();	// depth from the starting node
-			for (Node child : node.getAdjacents()) {
-				if (child.getDepth() == -1 || child.getDepth() > depth + 1)
+			for (Node child : node.getAdjacents()) 	// depth=-1 means node was not yet visited, otherwise it was already visited
+				if (child.getDepth() == -1) {
 					child.setDepth(depth + 1);
-				nextToVisit.add(child);
-			}
+					nextToVisit.add(child);
+				}
 		}		
-		return visited;
 	}
 }
 
