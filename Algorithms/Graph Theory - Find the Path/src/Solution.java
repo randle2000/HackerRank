@@ -1,3 +1,8 @@
+/*
+ * The code in this file is messy but that's partly because of the need for performance
+ */
+
+
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -19,6 +24,7 @@ class Node {
 	private Node[] adjacents;
 	private Set<Shortcut> shortcuts = new HashSet<>();
 
+	private boolean visited = false;
 	private int distance = Integer.MAX_VALUE;	// distance from the starting node
 	
 	public Node(int id, int row, int column, int value, int zoneId, boolean isZoneBar) {
@@ -30,6 +36,14 @@ class Node {
 		this.isZoneBar = isZoneBar;
 	}
 	
+	public boolean isVisited() {
+		return visited;
+	}
+
+	public void setVisited(boolean visited) {
+		this.visited = visited;
+	}
+
 	public int getDistance() {
 		return distance;
 	}
@@ -87,8 +101,13 @@ class Shortcut {
 	public final int distance;	// pay attention whether you include originating node's value into here
 	
 	public Shortcut(Node node, int distance) {
-		this.node = Objects.requireNonNull(node);
+		//this.node = Objects.requireNonNull(node);
+		this.node = node;
 		this.distance = distance;
+	}
+
+	public int getDistance() {
+		return distance;
 	}
 
 	@Override
@@ -100,10 +119,10 @@ class Shortcut {
 	public boolean equals(Object obj) {
 		if (this == obj)
 			return true;
-		if (obj == null)
-			return false;
-		if (getClass() != obj.getClass())
-			return false;
+//		if (obj == null)
+//			return false;
+//		if (getClass() != obj.getClass())
+//			return false;
 		Shortcut other = (Shortcut) obj;
 		return node.equals(other.node);
 	}
@@ -133,34 +152,61 @@ interface SearchFilter {
 
 class Graph {
 	// this filter is used when initially searching for shortcuts
-	// it will allow search to continue to any zone on the right (id >= targetZoneId)
-	// nodes to the left of the targetZone should not be searched as they are already covered by target zone's bar
+	// it will allow search to continue to any zone on the right (id >= sourceZoneId)
+	// nodes to the left of the sourceZone should not be searched as they are already covered by target zone's bar
 	private class SearchFilterShortcuts implements SearchFilter {	
-		private final int targetZoneId;
-		private final Zone[] zones;
-		public SearchFilterShortcuts(int targetZoneId, Zone[] zones) {
-			this.targetZoneId = targetZoneId;
+		protected final int sourceZoneId;
+		protected final Zone[] zones;
+		public SearchFilterShortcuts(int sourceZoneId, Zone[] zones) {
+			this.sourceZoneId = sourceZoneId;
 			this.zones = zones;
 		}
 		
 		@Override
 		public boolean isVisitAllowed(Node from, Node to) {
-			if(true) return true;
-			if (to.zoneId >= targetZoneId)
+			if (to.zoneId >= sourceZoneId)
 				return true;
 			return false;
 		}
 		
 		@Override
 		public void resetDistances() {
-			for (Node n : nodes) {
-				n.setDistance(Integer.MAX_VALUE);
-				//n.nodesTraveled = 0; 
+			for (int i = sourceZoneId; i < zones.length; i++) {
+				for (Node n : zones[i].barNodes) {
+					n.setDistance(Integer.MAX_VALUE);
+					n.setVisited(false);
+				}
+				for (Node n : zones[i].bodyNodes) {
+					n.setDistance(Integer.MAX_VALUE);
+					n.setVisited(false);
+				}
 			}
-//			for (int i = targetZoneId; i < zones.length; i++) {
-//				for (Node n : zones[i].barNodes) n.setDistance(Integer.MAX_VALUE);
-//				for (Node n : zones[i].bodyNodes) n.setDistance(Integer.MAX_VALUE);
-//			}
+		}
+	}
+	
+	// this filter is used for 2nd pass when initially searching for shortcuts
+	// it will allow search to continue to any zone on the right (id > sourceZoneId)
+	// only search within bar nodes
+	private class SearchFilterShortcutsBarsOnly extends SearchFilterShortcuts  {
+		public SearchFilterShortcutsBarsOnly(int sourceZoneId, Zone[] zones) {
+			super(sourceZoneId, zones);
+		}
+		
+		@Override
+		public boolean isVisitAllowed(Node from, Node to) {
+			if (from.isZoneBar && to.isZoneBar && to.zoneId > sourceZoneId)
+				return true;
+			return false;
+		}
+		
+		@Override
+		public void resetDistances() {
+			for (int i = sourceZoneId; i < zones.length; i++) {
+				for (Node n : zones[i].barNodes) {
+					n.setDistance(Integer.MAX_VALUE);
+					n.setVisited(false);
+				}
+			}
 		}
 	}
 	
@@ -206,16 +252,18 @@ class Graph {
 
 		@Override
 		public boolean isVisitAllowed(Node from, Node to) {
-//			if(true) return true;
+			if (from.zoneId == sZoneId || (from.zoneId == sZoneId+1 && from.isZoneBar)) {	// FROM: zone1 (including 2 bars) 
+				if (to.zoneId == sZoneId || (to.zoneId == sZoneId+1 && to.isZoneBar))		// TO: zone1 (including 2 bars)
+					return true;
+				if (to.zoneId == tZoneId || (to.zoneId == tZoneId+1 && to.isZoneBar))		// TO: zone2 (including 2 bars)
+					return true;
+			}
+
+			if (from.zoneId == tZoneId || (from.zoneId == tZoneId+1 && from.isZoneBar)) {	// FROM: zone2 (including 2 bars)
+				if (to.zoneId == tZoneId || (to.zoneId == tZoneId+1 && to.isZoneBar))		// TO: zone2 (including 2 bars)
+					return true;
+			}
 			
-			if (from.isZoneBar || to.isZoneBar)
-				return true;
-			if (from.zoneId == sZoneId)
-				if(to.zoneId == sZoneId || to.zoneId == tZoneId)
-					return true;
-			if (from.zoneId == tZoneId)
-				if(to.zoneId == sZoneId || to.zoneId == tZoneId)
-					return true;
 			
 			
 //			if (from.zoneId == sZoneId && !from.isZoneBar) {								// FROM: zone1 body
@@ -253,20 +301,61 @@ class Graph {
 		
 		@Override
 		public void resetDistances() {
-			for (Node n : nodes) {
+			// reset source zone with 2 bars
+			int i = sZoneId;
+			for (Node n : zones[i].barNodes) {
 				n.setDistance(Integer.MAX_VALUE);
-				//n.nodesTraveled = 0;
+				n.setVisited(false);
 			}
+			for (Node n : zones[i].bodyNodes) {
+				n.setDistance(Integer.MAX_VALUE);
+				n.setVisited(false);
+			}
+			if (i + 1 < zones.length)
+				for (Node n : zones[i + 1].barNodes) {
+					n.setDistance(Integer.MAX_VALUE);
+					n.setVisited(false);
+				}
+			
+			// reset target zone with 2 bars
+			if (tZoneId != sZoneId) {
+				i = tZoneId;
+				for (Node n : zones[i].barNodes) {
+					n.setDistance(Integer.MAX_VALUE);
+					n.setVisited(false);
+				}
+				for (Node n : zones[i].bodyNodes) {
+					n.setDistance(Integer.MAX_VALUE);
+					n.setVisited(false);
+				}
+				if (i + 1 < zones.length)
+					for (Node n : zones[i + 1].barNodes) {
+						n.setDistance(Integer.MAX_VALUE);
+						n.setVisited(false);
+					}
+			}
+			
+
+			
 //			for (int i = minZoneId; i <= maxZoneId; i++) {
 //				// reset all bars of source zone, target zone and all bars in between
-//				for (Node n : zones[i].barNodes) n.setDistance(Integer.MAX_VALUE);
+//				for (Node n : zones[i].barNodes) {
+//					n.setDistance(Integer.MAX_VALUE);
+//					n.setVisited(false);
+//				}
 //				// reset body of source zone and target
 //				if (i == minZoneId || i == maxZoneId)
-//					for (Node n : zones[i].bodyNodes) n.setDistance(Integer.MAX_VALUE);
+//					for (Node n : zones[i].bodyNodes) {
+//						n.setDistance(Integer.MAX_VALUE);
+//						n.setVisited(false);
+//					}
 //				// reset the most right bar if it exists
 //				if (i == maxZoneId)
 //					if (maxZoneId + 1 < zones.length)
-//						for (Node n : zones[maxZoneId + 1].barNodes) n.setDistance(Integer.MAX_VALUE);
+//						for (Node n : zones[maxZoneId + 1].barNodes) {
+//							n.setDistance(Integer.MAX_VALUE);
+//							n.setVisited(false);
+//						}
 //			}
 		}
 	}
@@ -309,7 +398,7 @@ class Graph {
 	 * @param maxColumnsPerZone	indicates how to split to zones
 	 * @throws IOException 
 	 */
-	public Graph(int[] arr, final int rows, final int columns, final int maxColumnsPerZone) throws IOException {
+	public Graph(int[] arr, final int rows, final int columns, final int maxColumnsPerZone) {
 		if (arr.length != rows * columns)
 			throw new IllegalArgumentException();
 		this.rows = rows;
@@ -394,37 +483,51 @@ class Graph {
         	
         	Node[] barNodes = zones[z].barNodes;
         	// for each node in this bar, find shortcuts to each other node within this same bar
-        	for (int i = 0; i < barNodes.length; i++) {	
+        	for (int i = 0; i < barNodes.length; i++) 	
         		// start from 2nd bar below because to the bar right below, there already is an adjacent
-        		for (int j = i + 2; j < barNodes.length; j++) {	 
-        			searchDijkstra(barNodes[i], barNodes[j], searchFilterSameBar);
-        			int distance = barNodes[j].getDistance();
-        			// distance is the shortest path between these 2 nodes, add shortcut to both of them
-        			// be careful: this distance includes values from both nodes
-        			barNodes[i].addShortcut(new Shortcut(barNodes[j], distance));
-        			barNodes[j].addShortcut(new Shortcut(barNodes[i], distance));
-        		}
-        	}
+        		for (int j = i + 2; j < barNodes.length; j++) 
+        			linkNodesWithShortcut(barNodes[i], barNodes[j], searchFilterSameBar);
         	
         	// now search from each node of this bar to each node of the next zone's bar (bar to the right)
         	if (z != zones.length - 1) {	// not the last zone
         		Node[] nextBarNodes = zones[z + 1].barNodes;
             	// for each node in this bar, find shortcuts to each node within this same bar
-            	for (int i = 0; i < barNodes.length; i++) {			// for each node in this bar, 
-            		for (int j = 0; j < nextBarNodes.length; j++) {	// find shortcut to each node of the next bar
-            			searchDijkstra(barNodes[i], nextBarNodes[j], searchFilterNextBar);
-            			int distance = nextBarNodes[j].getDistance();
-            			// distance is the shortest path between these 2 nodes, add shortcut to both of them 
-            			// be careful: this distance includes values from both nodes
-            			barNodes[i].addShortcut(new Shortcut(nextBarNodes[j], distance));
-            			nextBarNodes[j].addShortcut(new Shortcut(barNodes[i], distance));
-            		}
-            	}
+            	for (Node bn : barNodes) 			// for each node in this bar, 
+            		for (Node nbn : nextBarNodes) 	// find shortcut to each node of the next bar
+            			linkNodesWithShortcut(bn, nbn, searchFilterNextBar);
+        	}
+        }
+        
+        // generate shortcuts from every bar node to EACH other bar node
+        // use already generated shortcuts
+        // starting from zone1 because zone0 does not have a bar
+        // ending 3rd zone from the right (i.e. not doing this for last 2 zones)        
+        for (int z = 1; z < zones.length - 2; z++) {	// process each zone from 1 to the right
+        	SearchFilter searchFilterBarsOnly = new SearchFilterShortcutsBarsOnly(z, zones);
+        	
+        	Node[] barNodes = zones[z].barNodes;
+        	for (Node bn : barNodes) {		// for each node in this bar,
+        		// starting from 2nd zone to the right of current because there are shortcuts already to the next zone
+        		for (int z2 = z + 2; z2 < zones.length; z2++) {
+        			Node[] nextBarNodes = zones[z2].barNodes;
+        			for (Node nbn : nextBarNodes) 	// find shortcut to each node of the next bar
+        				linkNodesWithShortcut(bn, nbn, searchFilterBarsOnly);
+        		}
         	}
         }
 	}
 	
-	public Node searchPath(int sourceRow, int sourceColumn, int targetRow, int targetColumn) throws IOException {
+	private void linkNodesWithShortcut(Node from, Node to, SearchFilter searchFilter) {
+		searchDijkstra(from, to, searchFilter);
+		int distance = to.getDistance();
+		// distance is the shortest path between these 2 nodes, add shortcut to both of them 
+		// be careful: this distance includes values from both nodes
+		from.addShortcut(new Shortcut(to, distance));
+		to.addShortcut(new Shortcut(from, distance));
+		
+	}
+	
+	public Node searchPath(int sourceRow, int sourceColumn, int targetRow, int targetColumn) {
 		int sourceIndex = rcToIndex(sourceRow, sourceColumn);
 		int targetIndex = rcToIndex(targetRow, targetColumn);
 		if (sourceIndex < 0 || sourceIndex >= nodes.length || targetIndex < 0 || targetIndex >= nodes.length)
@@ -442,69 +545,39 @@ class Graph {
 	 * @param firstId of first node to visit
 	 * @throws IOException 
 	 */
-	public void searchDijkstra(Node startNode, Node targetNode, SearchFilter searchFilter) throws IOException {
+	public void searchDijkstra(Node startNode, Node targetNode, SearchFilter searchFilter) {
 		searchFilter.resetDistances();
 			
 		final int r = targetNode.row;
 		final int c = targetNode.column;
-		Comparator<Node> byDistance = Comparator.comparingInt(Node::getDistance);
-		Comparator<Node> byProximity = (n1, n2) -> {
-			int proximity1 = Math.abs(c - n1.column) + Math.abs(r - n1.row);
-			int proximity2 = Math.abs(c - n2.column) + Math.abs(r - n2.row);
+		Comparator<Shortcut> byDistance = Comparator.comparingInt(Shortcut::getDistance);
+		Comparator<Shortcut> byProximity = (s1, s2) -> {
+			int proximity1 = Math.abs(c - s1.node.column) + Math.abs(r - s1.node.row);
+			int proximity2 = Math.abs(c - s2.node.column) + Math.abs(r - s2.node.row);
 			return proximity1 - proximity2;
 		};
-		Comparator<Node> myComparator = byDistance.thenComparing(byProximity);
-		//Comparator<Node> myComparator = byDistance;
-		PriorityQueue<Node> nextToVisit = new PriorityQueue<>(11, myComparator);
-		Queue<Node> q = new PriorityQueue<>(11, myComparator);
+		Comparator<Shortcut> myComparator = byDistance.thenComparing(byProximity);
+		//Comparator<Shortcut> myComparator = byDistance;
+		PriorityQueue<Shortcut> nextToVisit = new PriorityQueue<>(11, myComparator);
 		
-		Set<Node> visited = new HashSet<>();
-		nextToVisit.add(startNode);
+		nextToVisit.add(new Shortcut(startNode, startNode.value));
 		startNode.setDistance(startNode.value);
 		
 		int mm = 0;
 		
 		while (!nextToVisit.isEmpty()) {
-			// find node in nextToVisit with the lowest depth
-			Node node = nextToVisit.poll();
+			// find node in nextToVisit with the lowest distance
+			Node node = nextToVisit.poll().node;
 			
-			
-
-			
-			int r1 = startNode.row;
-			int c1 = startNode.column;
-			int r2 = targetNode.row;
-			int c2 = targetNode.column;
-			if (r1 == 3 && c1 == 89 && r2 == 2 && c2 == 1141)
-					if ((node.id == 15172 || node.id == 25301) && visited.contains(node)) 
-						System.out.println("zzz");
-			
-			
-			if (visited.contains(node))
+			if (node.isVisited())
 				continue;
-			visited.add(node);
-			
+			node.setVisited(true);
 			
 			if (node.getDistance() < mm)
 				System.out.println("mmmmmmmmmmmmmmmmmmmmmmmmmm");
 			if (mm < node.getDistance())
 				mm = node.getDistance();
-			
-			
-//			int r1 = startNode.row;
-//			int c1 = startNode.column;
-//			int r2 = targetNode.row;
-//			int c2 = targetNode.column;
-			if (r1 == 3 && c1 == 89 && r2 == 2 && c2 == 1141)
-				if (node.isZoneBar) {
-					System.out.println(node);
-					//if (node.id == 15172 || node.id == 25301) {
-					if (node.id == 25301) {
-						System.out.println("aaa");
-						while (!q.isEmpty())
-							System.out.println("Polled: " + q.poll());
-					}
-				}
+
 			
 			if (node.id == targetNode.id)
 				return;
@@ -513,50 +586,27 @@ class Graph {
 			// queue shortcuts
 			for (Shortcut shortcut : node.getShortcuts()) {
 				Node child = shortcut.node;
-				if (searchFilter.isVisitAllowed(node, child)) {
-					if (!visited.contains(child)) {	 
+				if (!child.isVisited()) {	 
+					if (searchFilter.isVisitAllowed(node, child)) {
 						int childDistance = child.getDistance();
 						// need to subtract node.value because shortcut.distance already includes it  
 						int newChildDistance = distance + shortcut.distance - node.value;
 						if (newChildDistance < childDistance) {
-							if (r1 == 3 && c1 == 89 && r2 == 2 && c2 == 1141 && (child.id == 25301 || child.id == 15172)) {
-								System.out.println("25301");
-							}
 							child.setDistance(newChildDistance);
-//							if (r1 == 3 && c1 == 89 && r2 == 2 && c2 == 1141 && (child.id == 25301 || child.id == 15172)) 
-//								q.add(child);
-							if (r1 == 3 && c1 == 89 && r2 == 2 && c2 == 1141 && child.getDistance() >= 3823) {
-								System.out.println("Adding: " + child);
-								q.add(child);
-							}
-							
-							boolean b = nextToVisit.add(child);
-							if (r1 == 3 && c1 == 89 && r2 == 2 && c2 == 1141 && (child.id == 25301 || child.id == 15172))
-								System.out.println(b);
+							nextToVisit.add(new Shortcut(child, newChildDistance));
 						}
 					}
 				}
 			}
 			// queue adjacents
 			for (Node child : node.getAdjacents()) {
-				if (searchFilter.isVisitAllowed(node, child)) {
-					if (!visited.contains(child)) {	 
+				if (!child.isVisited()) {	 
+					if (searchFilter.isVisitAllowed(node, child)) {
 						int childDistance = child.getDistance();
 						int newChildDistance = distance + child.value;
 						if (newChildDistance < childDistance) {
-							if (r1 == 3 && c1 == 89 && r2 == 2 && c2 == 1141 && (child.id == 25301 || child.id == 15172))
-								System.out.println("25301");
 							child.setDistance(newChildDistance);
-							
-							if (r1 == 3 && c1 == 89 && r2 == 2 && c2 == 1141 && child.getDistance() >= 3823) {
-								System.out.println("Adding: " + child);
-								q.add(child);
-							}
-							
-							
-							boolean b = nextToVisit.add(child);
-							if (r1 == 3 && c1 == 89 && r2 == 2 && c2 == 1141 && (child.id == 25301 || child.id == 15172))
-								System.out.println(b);
+							nextToVisit.add(new Shortcut(child, newChildDistance));
 						}
 					}
 				}
@@ -582,63 +632,68 @@ public class Solution {
         //System.out.println("------------");
         
     	startTime = System.nanoTime(); 
-    	Graph graph = new Graph(arr, n, m, 43);
+    	Graph graph = new Graph(arr, n, m, 70);
     	estimatedTime = System.nanoTime() - startTime;
         System.out.println("Graph creation: " + TimeUnit.MILLISECONDS.convert(estimatedTime, TimeUnit.NANOSECONDS));
         //System.out.println("------------");
         
-//		File file = new File("aaaa.txt");
-//		FileWriter fileWriter = new FileWriter(file);
-//		BufferedWriter out = new BufferedWriter(fileWriter);
+//		BufferedWriter out = new BufferedWriter(new FileWriter(new File("aaaa.txt")));
 		BufferedReader eo = new BufferedReader(new FileReader(new File("expectedOutput.txt")));
 
 		
 		startTime = System.nanoTime();
 		List<Long> execTimes = new ArrayList<>();
         int q = in.nextInt();
-        for (int i = 0; i < q; i++) {
+    	
+        int good = 0;
+    	int bad = 0;
+
+    	for (int i = 0; i < q; i++) {
             int r1 = in.nextInt();
             int c1 = in.nextInt();
             int r2 = in.nextInt();
             int c2 = in.nextInt();
             
-//            if (!(r1 == 3 && c1 == 89 && r2 == 2 && c2 == 1141))
-//            	continue;
-            
         	long taskStartTime = System.nanoTime(); 
             Node targetNode = graph.searchPath(r1, c1, r2, c2);
-            long taskExecTime = TimeUnit.MILLISECONDS.convert(System.nanoTime() - taskStartTime, TimeUnit.NANOSECONDS);
+            long taskExecTime = TimeUnit.MICROSECONDS.convert(System.nanoTime() - taskStartTime, TimeUnit.NANOSECONDS);
         	execTimes.add(taskExecTime);
+//    		out.write(String.valueOf(taskExecTime));
+//    		out.newLine();
+
 
         	int minDepth = targetNode.getDistance();
         	String es = eo.readLine();
         	if (!es.equals(String.valueOf(minDepth)) ) {
+        		bad++;
         		Node nn = graph.getNode(graph.rcToIndex(r1,  c1));
-        		System.out.println(nn.zoneId);
-        		System.out.println("r1c1="+ r1 + " " + c1);
-        		System.out.println(nn.isZoneBar);
-        		System.out.println(targetNode.zoneId);
-        		System.out.println("r2c2="+ r2 + " " + c2);
-        		System.out.println(targetNode.isZoneBar);
+        		System.out.println(nn);
+        		System.out.println(targetNode);
         		System.out.println("actual="+minDepth);
         		System.out.println("expected="+es);
         		System.out.println("-------------");
-        	}
+        	} else good++;
 //    		System.out.println(minDepth);
 //    		out.write(String.valueOf(minDepth));
 //    		out.newLine();
         }
 //		out.close();
-//		fileWriter.close();
         eo.close();
         in.close();
+        System.out.println("good: " + good);
+        System.out.println("good: " + bad);
         
         estimatedTime = TimeUnit.SECONDS.convert(System.nanoTime() - startTime, TimeUnit.NANOSECONDS);
-        int avgTime = (int)execTimes.stream()
+        double avgTime = execTimes.stream()
         		.mapToLong(Long::longValue)
         		.average()
         		.getAsDouble();
-        System.out.println("Avg time (ms): " + avgTime);
+        long totalTime = execTimes.stream()
+        		.mapToLong(t -> TimeUnit.MICROSECONDS.convert(t, TimeUnit.NANOSECONDS))
+        		.sum();
+        System.out.println("Avg query time (micros): " + avgTime);
+        System.out.println("Total query time (s): " + TimeUnit.SECONDS.convert(totalTime, TimeUnit.MICROSECONDS));
         System.out.println("Total time (s): " + estimatedTime);
+        System.out.println("1000 micros = (ms): " + TimeUnit.MILLISECONDS.convert(1000, TimeUnit.MICROSECONDS));
     }
 }
