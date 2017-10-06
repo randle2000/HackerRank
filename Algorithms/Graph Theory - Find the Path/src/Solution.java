@@ -12,7 +12,29 @@ import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
+class Stats {
+	Node startNode, targetNode;
+	int nodesTraveled;
+	int shortcutCycles;
+	int adjCycles;
+	long microsShortcutCycles;
+	long microsAdjCycles;
+	public Stats(Node startNode, Node targetNode) {
+		this.startNode = startNode;
+		this.targetNode = targetNode;
+	}
+	@Override
+	public String toString() {
+		return "Stats [startNode=" + startNode + ", targetNode=" + targetNode + ", nodesTraveled=" + nodesTraveled
+				+ ", shortcutCycles=" + shortcutCycles + ", adjCycles=" + adjCycles + ", microsShortcutCycles="
+				+ microsShortcutCycles + ", microsAdjCycles=" + microsAdjCycles + "]";
+	}
+	
+}
+
 class Node {
+	public Stats stats;
+	
 	public final int id;
 	public final int row;
 	public final int column;
@@ -23,6 +45,9 @@ class Node {
 	
 	private Node[] adjacents;
 	private Set<Shortcut> shortcuts = new HashSet<>();
+	// a duplicate copy of all shortcuts is stored here
+	// key is in a map is ZoneId
+	private Map<Integer, Set<Shortcut>> shortcutsByZone = new HashMap<>(); 
 
 	private boolean visited = false;
 	private int distance = Integer.MAX_VALUE;	// distance from the starting node
@@ -64,8 +89,31 @@ class Node {
 		return shortcuts;
 	}
 	
+	private void addShortcutToZone(Integer zoneId, Shortcut shortcut) {
+		Set<Shortcut> ss = shortcutsByZone.get(zoneId);
+		if (ss == null) {
+			ss = new HashSet<>();
+			shortcutsByZone.put(zoneId, ss);
+		}
+		ss.add(shortcut);
+	}
+	
 	public void addShortcut(Shortcut shortcut) {
 		this.shortcuts.add(shortcut);
+		// add to this zone and the left, so that when you query for zone's shortcut you get 2 bars in one set
+		addShortcutToZone(shortcut.node.zoneId, shortcut);
+		addShortcutToZone(shortcut.node.zoneId - 1, shortcut);
+	}
+	
+	/**
+	 * will return shortcuts of 2 bars the the left and right of targetZone
+	 * if it doesn't exist then null is returned
+	 * 
+	 * @param targetZoneId
+	 * @return set of shortcuts to target zone
+	 */
+	public Set<Shortcut> getShortcutsForZone(int targetZoneId) {
+		return shortcutsByZone.get(targetZoneId);
 	}
 	
 	@Override
@@ -148,6 +196,10 @@ interface SearchFilter {
 	boolean isVisitAllowed(Node from, Node to);
 	
 	void resetDistances();
+	
+	default Set<Shortcut> getShortcutsForZone(Node from, int targetZoneId) {
+		return from.getShortcutsForZone(targetZoneId);
+	}
 }
 
 class Graph {
@@ -181,6 +233,15 @@ class Graph {
 					n.setVisited(false);
 				}
 			}
+		}
+		
+		/**
+		 * This will return shortcuts to zone previous to targetZoneId because shortcuts to 
+		 * targetZoneId do not exist yet, they are being searched for
+		 */
+		@Override
+		public Set<Shortcut> getShortcutsForZone(Node from, int targetZoneId) {
+			return from.getShortcutsForZone(targetZoneId - 1);
 		}
 	}
 	
@@ -252,15 +313,15 @@ class Graph {
 
 		@Override
 		public boolean isVisitAllowed(Node from, Node to) {
-			if (from.zoneId == sZoneId || (from.zoneId == sZoneId+1 && from.isZoneBar)) {	// FROM: zone1 (including 2 bars) 
-				if (to.zoneId == sZoneId || (to.zoneId == sZoneId+1 && to.isZoneBar))		// TO: zone1 (including 2 bars)
+			if (from.zoneId == sZoneId || (from.isZoneBar && from.zoneId == sZoneId+1)) {	// FROM: zone1 (including 2 bars) 
+				if (to.zoneId == sZoneId || (to.isZoneBar && to.zoneId == sZoneId+1))		// TO: zone1 (including 2 bars)
 					return true;
-				if (to.zoneId == tZoneId || (to.zoneId == tZoneId+1 && to.isZoneBar))		// TO: zone2 (including 2 bars)
+				if (to.zoneId == tZoneId || (to.isZoneBar && to.zoneId == tZoneId+1))		// TO: zone2 (including 2 bars)
 					return true;
 			}
 
-			if (from.zoneId == tZoneId || (from.zoneId == tZoneId+1 && from.isZoneBar)) {	// FROM: zone2 (including 2 bars)
-				if (to.zoneId == tZoneId || (to.zoneId == tZoneId+1 && to.isZoneBar))		// TO: zone2 (including 2 bars)
+			if (from.zoneId == tZoneId || (from.isZoneBar && from.zoneId == tZoneId+1)) {	// FROM: zone2 (including 2 bars)
+				if (to.zoneId == tZoneId || (to.isZoneBar && to.zoneId == tZoneId+1))		// TO: zone2 (including 2 bars)
 					return true;
 			}
 			
@@ -547,7 +608,7 @@ class Graph {
 	 */
 	public void searchDijkstra(Node startNode, Node targetNode, SearchFilter searchFilter) {
 		searchFilter.resetDistances();
-			
+		
 		final int r = targetNode.row;
 		final int c = targetNode.column;
 		Comparator<Shortcut> byDistance = Comparator.comparingInt(Shortcut::getDistance);
@@ -558,50 +619,62 @@ class Graph {
 		};
 		Comparator<Shortcut> myComparator = byDistance.thenComparing(byProximity);
 		//Comparator<Shortcut> myComparator = byDistance;
-		PriorityQueue<Shortcut> nextToVisit = new PriorityQueue<>(11, myComparator);
+		PriorityQueue<Shortcut> nextToVisit = new PriorityQueue<>(myComparator);
 		
 		nextToVisit.add(new Shortcut(startNode, startNode.value));
 		startNode.setDistance(startNode.value);
 		
-		int mm = 0;
+		Stats stats = new Stats(startNode, targetNode);
+		long startTime;
 		
 		while (!nextToVisit.isEmpty()) {
 			// find node in nextToVisit with the lowest distance
 			Node node = nextToVisit.poll().node;
 			
-			if (node.isVisited())
+			if (node.isVisited()) 
 				continue;
+				
 			node.setVisited(true);
 			
-			if (node.getDistance() < mm)
-				System.out.println("mmmmmmmmmmmmmmmmmmmmmmmmmm");
-			if (mm < node.getDistance())
-				mm = node.getDistance();
-
+			stats.nodesTraveled++;
 			
-			if (node.id == targetNode.id)
+			if (node.id == targetNode.id) {
+				targetNode.stats = stats;
 				return;
+			}
 			
 			int distance = node.getDistance();	// depth from the starting node
 			// queue shortcuts
-			for (Shortcut shortcut : node.getShortcuts()) {
-				Node child = shortcut.node;
-				if (!child.isVisited()) {	 
-					if (searchFilter.isVisitAllowed(node, child)) {
-						int childDistance = child.getDistance();
-						// need to subtract node.value because shortcut.distance already includes it  
-						int newChildDistance = distance + shortcut.distance - node.value;
-						if (newChildDistance < childDistance) {
-							child.setDistance(newChildDistance);
-							nextToVisit.add(new Shortcut(child, newChildDistance));
+			startTime = System.nanoTime();
+			if (node.isZoneBar) {
+				//Set<Shortcut> shortcuts = node.getShortcuts();
+				//Set<Shortcut> shortcuts = node.getShortcutsForZone(targetNode.zoneId);
+				Set<Shortcut> shortcuts = searchFilter.getShortcutsForZone(node, targetNode.zoneId);
+				if (shortcuts != null)
+					for (Shortcut shortcut : shortcuts) {
+						stats.shortcutCycles++;
+						Node child = shortcut.node;
+						if (searchFilter.isVisitAllowed(node, child)) {
+							if (!child.isVisited()) {	 
+								int childDistance = child.getDistance();
+								// need to subtract node.value because shortcut.distance already includes it  
+								int newChildDistance = distance + shortcut.distance - node.value;
+								if (newChildDistance < childDistance) {
+									child.setDistance(newChildDistance);
+									nextToVisit.add(new Shortcut(child, newChildDistance));
+								}
+							}
 						}
 					}
-				}
 			}
+			stats.microsShortcutCycles += TimeUnit.MICROSECONDS.convert(System.nanoTime() - startTime, TimeUnit.NANOSECONDS);
+			
+			startTime = System.nanoTime();
 			// queue adjacents
 			for (Node child : node.getAdjacents()) {
-				if (!child.isVisited()) {	 
-					if (searchFilter.isVisitAllowed(node, child)) {
+				stats.adjCycles++;
+				if (searchFilter.isVisitAllowed(node, child)) {
+					if (!child.isVisited()) {	 
 						int childDistance = child.getDistance();
 						int newChildDistance = distance + child.value;
 						if (newChildDistance < childDistance) {
@@ -611,6 +684,7 @@ class Graph {
 					}
 				}
 			}
+			stats.microsAdjCycles += TimeUnit.MICROSECONDS.convert(System.nanoTime() - startTime, TimeUnit.NANOSECONDS);
 		}
 	}
 }
@@ -619,35 +693,28 @@ public class Solution {
     
     public static void main(String[] args) throws IOException {
     	long startTime = System.nanoTime(); 
-    	
         Scanner in = new Scanner(System.in);
         int n = in.nextInt();
         int m = in.nextInt();
         int[] arr = new int[n * m];
         for (int i = 0; i < n * m; i++)
         	arr[i] = in.nextInt();
-        
         long estimatedTime = System.nanoTime() - startTime;
         System.out.println("Readout: " + TimeUnit.MILLISECONDS.convert(estimatedTime, TimeUnit.NANOSECONDS));
-        //System.out.println("------------");
         
     	startTime = System.nanoTime(); 
-    	Graph graph = new Graph(arr, n, m, 70);
+    	Graph graph = new Graph(arr, n, m, 30);
     	estimatedTime = System.nanoTime() - startTime;
         System.out.println("Graph creation: " + TimeUnit.MILLISECONDS.convert(estimatedTime, TimeUnit.NANOSECONDS));
-        //System.out.println("------------");
         
 //		BufferedWriter out = new BufferedWriter(new FileWriter(new File("aaaa.txt")));
 		BufferedReader eo = new BufferedReader(new FileReader(new File("expectedOutput.txt")));
-
 		
 		startTime = System.nanoTime();
-		List<Long> execTimes = new ArrayList<>();
-        int q = in.nextInt();
-    	
-        int good = 0;
-    	int bad = 0;
+		List<Long> execTimes = new LinkedList<>();
+		List<Stats> statList = new LinkedList<>();
 
+		int q = in.nextInt();
     	for (int i = 0; i < q; i++) {
             int r1 = in.nextInt();
             int c1 = in.nextInt();
@@ -658,21 +725,18 @@ public class Solution {
             Node targetNode = graph.searchPath(r1, c1, r2, c2);
             long taskExecTime = TimeUnit.MICROSECONDS.convert(System.nanoTime() - taskStartTime, TimeUnit.NANOSECONDS);
         	execTimes.add(taskExecTime);
-//    		out.write(String.valueOf(taskExecTime));
-//    		out.newLine();
-
+        	statList.add(targetNode.stats);
 
         	int minDepth = targetNode.getDistance();
         	String es = eo.readLine();
         	if (!es.equals(String.valueOf(minDepth)) ) {
-        		bad++;
         		Node nn = graph.getNode(graph.rcToIndex(r1,  c1));
         		System.out.println(nn);
         		System.out.println(targetNode);
         		System.out.println("actual="+minDepth);
         		System.out.println("expected="+es);
         		System.out.println("-------------");
-        	} else good++;
+        	}
 //    		System.out.println(minDepth);
 //    		out.write(String.valueOf(minDepth));
 //    		out.newLine();
@@ -680,8 +744,6 @@ public class Solution {
 //		out.close();
         eo.close();
         in.close();
-        System.out.println("good: " + good);
-        System.out.println("good: " + bad);
         
         estimatedTime = TimeUnit.SECONDS.convert(System.nanoTime() - startTime, TimeUnit.NANOSECONDS);
         double avgTime = execTimes.stream()
@@ -695,5 +757,26 @@ public class Solution {
         System.out.println("Total query time (s): " + TimeUnit.SECONDS.convert(totalTime, TimeUnit.MICROSECONDS));
         System.out.println("Total time (s): " + estimatedTime);
         System.out.println("1000 micros = (ms): " + TimeUnit.MILLISECONDS.convert(1000, TimeUnit.MICROSECONDS));
+        
+        System.out.println("-------");
+        System.out.println("Avg nodes traveled: " + (int)statList.stream().mapToInt(s -> s.nodesTraveled).average().getAsDouble());
+        System.out.println("Max nodes traveled: " + statList.stream().mapToInt(s -> s.nodesTraveled).max().getAsInt());
+        System.out.println("Min nodes traveled: " + statList.stream().mapToInt(s -> s.nodesTraveled).min().getAsInt());
+        System.out.println("-------");
+        System.out.println("Avg shortcut cycles: " + (int)statList.stream().mapToInt(s -> s.shortcutCycles).average().getAsDouble());
+        System.out.println("Max shortcut cycles: " + statList.stream().mapToInt(s -> s.shortcutCycles).max().getAsInt());
+        System.out.println("Min shortcut cycles: " + statList.stream().mapToInt(s -> s.shortcutCycles).min().getAsInt());
+        System.out.println("-------");
+        System.out.println("Avg adj cycles: " + (int)statList.stream().mapToInt(s -> s.adjCycles).average().getAsDouble());
+        System.out.println("Max adj cycles: " + statList.stream().mapToInt(s -> s.adjCycles).max().getAsInt());
+        System.out.println("Min adj cycles: " + statList.stream().mapToInt(s -> s.adjCycles).min().getAsInt());
+        System.out.println("-------");
+        System.out.println("Avg microsecs spent on shortcut cycles: " + (long)statList.stream().mapToLong(s -> s.microsShortcutCycles).average().getAsDouble());
+        System.out.println("Max microsecs spent on shortcut cycles: " + statList.stream().mapToLong(s -> s.microsShortcutCycles).max().getAsLong());
+        System.out.println("Min microsecs spent on shortcut cycles: " + statList.stream().mapToLong(s -> s.microsShortcutCycles).min().getAsLong());
+        System.out.println("-------");
+        System.out.println("Avg microsecs spent on adj cycles: " + (long)statList.stream().mapToLong(s -> s.microsAdjCycles).average().getAsDouble());
+        System.out.println("Max microsecs spent on adj cycles: " + statList.stream().mapToLong(s -> s.microsAdjCycles).max().getAsLong());
+        System.out.println("Min microsecs spent on adj cycles: " + statList.stream().mapToLong(s -> s.microsAdjCycles).min().getAsLong());
     }
 }
