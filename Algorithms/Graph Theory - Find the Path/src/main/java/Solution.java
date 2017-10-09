@@ -2,8 +2,13 @@
  * The code in this file is messy but that's partly because of the need for performance
  */
 
+import java.io.BufferedOutputStream;
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 interface TreeVis<T> {
 	void visitTreeNode(TreeNode<T> treeNode);
@@ -12,7 +17,9 @@ interface TreeVis<T> {
 /**
  * This class will create a binary search tree (left < parent < right for each node, no duplicates values)
  * from a range of integers.
- * If there are only 2 values in a range, then only root and left leaf are created  
+ * If there are only 2 values in a range, then only root and left leaf are created
+ * 
+ * @param minRange if zone is >= than minRange than it will be split  
  */
 class TreeNode<T> {
 	private final int from, to;
@@ -25,15 +32,23 @@ class TreeNode<T> {
 	 * @param to exclusive
 	 */
 	public TreeNode(int from, int to) {
-		if (to - from < 1)
+		this(from, to, 1);
+	}
+	
+	/**
+	 * @param from inclusive
+	 * @param to exclusive
+	 */
+	public TreeNode(int from, int to, int minRange) {
+		if (to - from < 1 || minRange < 1)
 			throw new IllegalArgumentException();
 		
 		this.from = from;
 		this.to = to;
 		data = (from + to) / 2;
 		
-		left = (data - from >= 1) ? new TreeNode<T>(from, data) : null;  
-		right = (to - data > 1) ? new TreeNode<T>(data + 1, to) : null;
+		left = (data - from >= minRange) ? new TreeNode<T>(from, data, minRange) : null;  
+		right = (to - 1 - data >= minRange) ? new TreeNode<T>(data + 1, to, minRange) : null;
 	}
 	
 	public TreeNode<T> find(int value) {
@@ -99,6 +114,18 @@ class TreeNode<T> {
 			return root; 
 		}
 	}
+	
+	public static <T> TreeNode<T> lowestCommonAncestor(TreeNode<T> root, int v1, int v2) {
+		Objects.requireNonNull(root);
+		if (root.data > Math.max(v1, v2)) {
+			return root.left == null ? root : lowestCommonAncestor(root.left, v1, v2);
+		} else if (root.data < Math.min(v1, v2)) {
+			return root.right == null ? root : lowestCommonAncestor(root.right, v1, v2);
+		} else {
+			return root; 
+		}
+	}
+
 }
 
 class Stats {
@@ -131,7 +158,7 @@ class Node {
 	public final int value;
 
 	private Node[] adjacents;
-	private Map<Node, Shortcut> shortcuts = new HashMap<>();
+	private Map<Node, Shortcut> shortcuts = new HashMap<>(1000);
 
 	private boolean visited = false;
 	private int distance = Integer.MAX_VALUE;	// distance from the starting node
@@ -314,6 +341,7 @@ class Graph implements TreeVis<Node[]> {
      */
     public int rcToIndex(int row, int column) {
     	return row * this.columns + column;
+    	//return rcToIndex[row][column];
     }
     
 	private Node getAdjacent(int r, int c) {
@@ -331,7 +359,7 @@ class Graph implements TreeVis<Node[]> {
 	 * @param rows
 	 * @param columns
 	 */
-	public Graph(int[] arr, final int rows, final int columns) {
+	public Graph(int[] arr, final int rows, final int columns, final int minColumnPerZone) {
 		if (arr.length != rows * columns)
 			throw new IllegalArgumentException();
 		this.rows = rows;
@@ -372,7 +400,7 @@ class Graph implements TreeVis<Node[]> {
         }
         
         // this will create binary search tree, each TreeNode.data is equal to index of column that splits zone from-to in 2 halfs  
-        rootBar = new TreeNode<>(0, this.columns);
+        rootBar = new TreeNode<>(0, this.columns, minColumnPerZone);
         // this will traverse tree and run searchDijkstra() for each zone
         // so that the vertical bar that splits will contain shortcuts to every node of the the zone it splits  
         rootBar.traversePreOrder(this);
@@ -396,6 +424,9 @@ class Graph implements TreeVis<Node[]> {
 		treeNode.setObj(barNodes);
 	}
 	
+	// searchMinPath() helper
+	private enum Scenario {BOTH_ON_LEFT, BOTH_ON_RIGHT, ONE_OR_MORE_ON_BAR, BAR_IS_BETWEEN}
+	
 	public int searchMinPath(int sourceRow, int sourceColumn, int targetRow, int targetColumn) {
 		int sourceIndex = rcToIndex(sourceRow, sourceColumn);
 		int targetIndex = rcToIndex(targetRow, targetColumn);
@@ -407,15 +438,38 @@ class Graph implements TreeVis<Node[]> {
 		if (sourceNode.equals(targetNode)) 
 			return sourceNode.value;
 		
-		TreeNode<Node[]> sourceBar = rootBar.find(sourceColumn);
-		TreeNode<Node[]> targetBar = rootBar.find(targetColumn);
-		TreeNode<Node[]> tnBar = TreeNode.<Node[]>lowestCommonAncestor(rootBar, sourceBar, targetBar);
-		Node[] barNodes = tnBar.getObj();
+		//TreeNode<Node[]> sourceBar = rootBar.find(sourceColumn);
+		//TreeNode<Node[]> targetBar = rootBar.find(targetColumn);
+		//TreeNode<Node[]> tnBar = TreeNode.<Node[]>lowestCommonAncestor(rootBar, sourceBar, targetBar);
+		TreeNode<Node[]> tnBar = TreeNode.<Node[]>lowestCommonAncestor(rootBar, sourceColumn, targetColumn);
+		int barColumn = tnBar.getData();
 		int minDistance = Integer.MAX_VALUE;
-		if (tnBar.getData() == targetColumn || tnBar.getData() == sourceColumn) {	// if the source or target is on the bar
+		
+		Scenario scen;
+		if (Math.max(sourceColumn, targetColumn) < barColumn)
+			scen = Scenario.BOTH_ON_LEFT;
+		else if (Math.min(sourceColumn, targetColumn) > barColumn)
+			scen = Scenario.BOTH_ON_RIGHT;
+		else if (barColumn == targetColumn || barColumn == sourceColumn)
+			scen = Scenario.ONE_OR_MORE_ON_BAR;
+		else
+			scen = Scenario.BAR_IS_BETWEEN;
+		
+		switch (scen) {
+		case BAR_IS_BETWEEN: 	// select shortcuts from every node of the splitting bar to source and target, sum then and select min(sum)
+			Node[] barNodes = tnBar.getObj();
+			for (Node n : barNodes) {
+				Shortcut sc1 = n.getShortcut(sourceNode);
+				Shortcut sc2 = n.getShortcut(targetNode);
+				int distance = sc1.distance + sc2.distance - n.value;	// -value because both shortcuts include it
+				minDistance = Math.min(distance, minDistance);
+			}
+			break;
+			
+		case ONE_OR_MORE_ON_BAR:	// if the source or target is on the bar
 			Node n1; 
 			Node n2;
-			if (tnBar.getData() == sourceColumn) {
+			if (barColumn == sourceColumn) {
 				n1 = sourceNode;
 				n2 = targetNode;
 			} else {
@@ -423,13 +477,22 @@ class Graph implements TreeVis<Node[]> {
 				n2 = sourceNode;
 			}
 			minDistance = n1.getShortcut(n2).distance;
-		} else {	// select shortcuts from every node of the splitting bar to source and target, sum then and select min(sum)
-			for (Node n : barNodes) {
-				Shortcut sc1 = n.getShortcut(sourceNode);
-				Shortcut sc2 = n.getShortcut(targetNode);
-				int distance = sc1.distance + sc2.distance - n.value;	// -value because both shortcuts include it
-				minDistance = Math.min(distance, minDistance);
+			break;
+			
+		case BOTH_ON_LEFT:	// both nodes are in one half of a zone with no bar between them. need to do searchDijkstra()
+		case BOTH_ON_RIGHT:
+			int columnFrom, columnTo;
+			if (scen == Scenario.BOTH_ON_LEFT) {
+				columnFrom = tnBar.getFrom(); 
+				columnTo = tnBar.getData();
+			} else {
+				columnFrom = tnBar.getData() + 1; 
+				columnTo = tnBar.getTo();
 			}
+			SearchFilter sfHalfBar = new SearchFilterBar(columnFrom, columnTo);
+			searchDijkstra(sourceNode, targetNode, sfHalfBar);
+			minDistance = targetNode.getDistance();
+			break;
 		}
 
 		targetNode.setDistance(minDistance);
@@ -537,15 +600,34 @@ class Graph implements TreeVis<Node[]> {
 public class Solution {
     
     public static void main(String[] args) throws IOException {
-    	Scanner in = new Scanner(System.in);
-        int n = in.nextInt();
-        int m = in.nextInt();
-        int[] arr = new int[n * m];
-        for (int i = 0; i < n * m; i++)
-        	arr[i] = in.nextInt();
+    	long startTime = System.nanoTime();
+    	
+    	//Scanner in = new Scanner(System.in);
+    	BufferedReader bi = new BufferedReader(new InputStreamReader(System.in));
+    	OutputStream out = new BufferedOutputStream ( System.out );
+
+//        int n = in.nextInt();
+//        int m = in.nextInt();
+		String line = bi.readLine();
+		String[] numStr = line.split("\\s");
+		int n = Integer.parseInt(numStr[0]);
+		int m = Integer.parseInt(numStr[1]);
         
-    	//long startTime = System.nanoTime(); 
-    	Graph graph = new Graph(arr, n, m);
+        int[] arr = new int[n * m];
+        //for (int i = 0; i < n * m; i++) {
+			//arr[i] = in.nextInt();
+		//}
+		int id = 0;
+		for (int r = 0; r < n; r++) {
+			line = bi.readLine();
+			numStr = line.split("\\s");
+			for (String s : numStr) {
+				arr[id++] = Integer.parseInt(s);
+			}
+		}
+        
+    	Graph graph = new Graph(arr, n, m, 1350);
+    	//System.out.println("Total time (ms): " + TimeUnit.MILLISECONDS.convert(System.nanoTime() - startTime, TimeUnit.NANOSECONDS));
     	//long estimatedTime = System.nanoTime() - startTime;
         //System.out.println("Graph creation: " + TimeUnit.MILLISECONDS.convert(estimatedTime, TimeUnit.NANOSECONDS));
         
@@ -556,12 +638,20 @@ public class Solution {
 		//List<Long> execTimes = new LinkedList<>();
 		//List<Stats> statList = new LinkedList<>();
 
-		int q = in.nextInt();
+    	
+		//int q = in.nextInt();
+		int q = Integer.parseInt(bi.readLine());
     	for (int i = 0; i < q; i++) {
-            int r1 = in.nextInt();
-            int c1 = in.nextInt();
-            int r2 = in.nextInt();
-            int c2 = in.nextInt();
+//          int r1 = in.nextInt();
+//          int c1 = in.nextInt();
+//          int r2 = in.nextInt();
+//          int c2 = in.nextInt();
+    		line = bi.readLine();
+    		numStr = line.split("\\s");
+			int r1 = Integer.parseInt(numStr[0]);
+			int c1 = Integer.parseInt(numStr[1]);
+			int r2 = Integer.parseInt(numStr[2]);
+			int c2 = Integer.parseInt(numStr[3]);
             
         	//long taskStartTime = System.nanoTime(); 
         	int minDistance = graph.searchMinPath(r1, c1, r2, c2);
@@ -582,9 +672,16 @@ public class Solution {
     		out.newLine();
         	*/
         	
-    		System.out.println(minDistance);
+    		//System.out.println(minDistance);
+    		out.write((minDistance + "\n").getBytes());
         }
-    	in.close();
+    	out.write(("Total time (ms): " + TimeUnit.MILLISECONDS.convert(System.nanoTime() - startTime, TimeUnit.NANOSECONDS) + "\n").getBytes());
+    	out.flush();
+    	out.close();
+    	//in.close();
+    	bi.close();
+    	
+    	//System.out.println("Total time (ms): " + TimeUnit.MILLISECONDS.convert(System.nanoTime() - startTime, TimeUnit.NANOSECONDS));
     	
     	/*
 		out.close();
