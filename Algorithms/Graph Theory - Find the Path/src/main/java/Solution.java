@@ -8,7 +8,6 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 
 interface TreeVis<T> {
 	void visitTreeNode(TreeNode<T> treeNode);
@@ -600,7 +599,7 @@ class Graph implements TreeVis<Node[]> {
 public class Solution {
     
     public static void main(String[] args) throws IOException {
-    	long startTime = System.nanoTime();
+    	//long startTime = System.nanoTime();
     	
     	//Scanner in = new Scanner(System.in);
     	BufferedReader bi = new BufferedReader(new InputStreamReader(System.in));
@@ -626,7 +625,7 @@ public class Solution {
 			}
 		}
         
-    	Graph graph = new Graph(arr, n, m, 1350);
+    	Graph graph = new Graph(arr, n, m, 150);
     	//System.out.println("Total time (ms): " + TimeUnit.MILLISECONDS.convert(System.nanoTime() - startTime, TimeUnit.NANOSECONDS));
     	//long estimatedTime = System.nanoTime() - startTime;
         //System.out.println("Graph creation: " + TimeUnit.MILLISECONDS.convert(estimatedTime, TimeUnit.NANOSECONDS));
@@ -675,7 +674,7 @@ public class Solution {
     		//System.out.println(minDistance);
     		out.write((minDistance + "\n").getBytes());
         }
-    	out.write(("Total time (ms): " + TimeUnit.MILLISECONDS.convert(System.nanoTime() - startTime, TimeUnit.NANOSECONDS) + "\n").getBytes());
+    	//out.write(("Total time (ms): " + TimeUnit.MILLISECONDS.convert(System.nanoTime() - startTime, TimeUnit.NANOSECONDS) + "\n").getBytes());
     	out.flush();
     	out.close();
     	//in.close();
