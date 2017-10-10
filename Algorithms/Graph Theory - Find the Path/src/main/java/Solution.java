@@ -9,6 +9,71 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.util.*;
 
+class FastReader {
+	private static final int LAST_LINE_MAX_CHARS = 256;
+	
+	InputStreamReader isr;
+	BufferedReader br;
+	StringTokenizer st;
+	boolean lastLine = false;
+
+	public FastReader() {
+		isr = new InputStreamReader(System.in); 
+		br = new BufferedReader(isr);
+	}
+
+	String next() {
+		while (st == null || !st.hasMoreElements()) {
+			try	{
+				String s = null;
+				if (lastLine) {
+					char[] cbuf = new char[LAST_LINE_MAX_CHARS];
+					int n = br.read(cbuf, 0, LAST_LINE_MAX_CHARS);
+					s = new String(cbuf, 0, n);
+				} else
+					s = br.readLine();
+				st = new StringTokenizer(s);
+			}
+			catch (IOException  e) {
+				e.printStackTrace();
+			}
+		}
+		return st.nextToken();
+	}
+
+	int nextInt() {
+		return Integer.parseInt(next());
+	}
+
+	long nextLong() {
+		return Long.parseLong(next());
+	}
+
+	double nextDouble() {
+		return Double.parseDouble(next());
+	}
+
+	String nextLine() {
+		String str = "";
+		try {
+			str = br.readLine();
+		}
+		catch (IOException e) {
+			e.printStackTrace();
+		}
+		return str;
+	}
+	
+	void close() {
+		try {
+			isr.close();
+			br.close();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+}
+
 interface TreeVis<T> {
 	void visitTreeNode(TreeNode<T> treeNode);
 }
@@ -602,27 +667,15 @@ public class Solution {
     	//long startTime = System.nanoTime();
     	
     	//Scanner in = new Scanner(System.in);
-    	BufferedReader bi = new BufferedReader(new InputStreamReader(System.in));
-    	OutputStream out = new BufferedOutputStream ( System.out );
+    	//Scanner in = new Scanner(new BufferedInputStream(System.in, 65536));
+    	FastReader in = new FastReader();
+    	OutputStream out = new BufferedOutputStream (System.out);
 
-//        int n = in.nextInt();
-//        int m = in.nextInt();
-		String line = bi.readLine();
-		String[] numStr = line.split("\\s");
-		int n = Integer.parseInt(numStr[0]);
-		int m = Integer.parseInt(numStr[1]);
-        
+        int n = in.nextInt();
+        int m = in.nextInt();
         int[] arr = new int[n * m];
-        //for (int i = 0; i < n * m; i++) {
-			//arr[i] = in.nextInt();
-		//}
-		int id = 0;
-		for (int r = 0; r < n; r++) {
-			line = bi.readLine();
-			numStr = line.split("\\s");
-			for (String s : numStr) {
-				arr[id++] = Integer.parseInt(s);
-			}
+        for (int i = 0; i < n * m; i++) {
+			arr[i] = in.nextInt();
 		}
         
     	Graph graph = new Graph(arr, n, m, 150);
@@ -638,19 +691,13 @@ public class Solution {
 		//List<Stats> statList = new LinkedList<>();
 
     	
-		//int q = in.nextInt();
-		int q = Integer.parseInt(bi.readLine());
+		int q = in.nextInt();
     	for (int i = 0; i < q; i++) {
-//          int r1 = in.nextInt();
-//          int c1 = in.nextInt();
-//          int r2 = in.nextInt();
-//          int c2 = in.nextInt();
-    		line = bi.readLine();
-    		numStr = line.split("\\s");
-			int r1 = Integer.parseInt(numStr[0]);
-			int c1 = Integer.parseInt(numStr[1]);
-			int r2 = Integer.parseInt(numStr[2]);
-			int c2 = Integer.parseInt(numStr[3]);
+    		if (i == q - 1) in.lastLine = true;
+			int r1 = in.nextInt();
+			int c1 = in.nextInt();
+			int r2 = in.nextInt();
+			int c2 = in.nextInt();
             
         	//long taskStartTime = System.nanoTime(); 
         	int minDistance = graph.searchMinPath(r1, c1, r2, c2);
@@ -673,17 +720,16 @@ public class Solution {
         	
     		//System.out.println(minDistance);
     		out.write((minDistance + "\n").getBytes());
+    		//out.flush();
         }
     	//out.write(("Total time (ms): " + TimeUnit.MILLISECONDS.convert(System.nanoTime() - startTime, TimeUnit.NANOSECONDS) + "\n").getBytes());
     	out.flush();
     	out.close();
-    	//in.close();
-    	bi.close();
+    	in.close();
     	
     	//System.out.println("Total time (ms): " + TimeUnit.MILLISECONDS.convert(System.nanoTime() - startTime, TimeUnit.NANOSECONDS));
     	
     	/*
-		out.close();
         eo.close();
         
         estimatedTime = TimeUnit.SECONDS.convert(System.nanoTime() - startTime, TimeUnit.NANOSECONDS);
