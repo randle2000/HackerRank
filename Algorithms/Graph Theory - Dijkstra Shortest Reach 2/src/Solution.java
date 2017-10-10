@@ -1,14 +1,102 @@
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.*;
 import java.util.stream.IntStream;
+
+import static java.util.stream.Collectors.*;
+
+class FastReader {
+	BufferedReader br;
+	StringTokenizer st;
+
+	public FastReader() {
+		br = new BufferedReader(new	InputStreamReader(System.in));
+	}
+
+	String next() {
+		while (st == null || !st.hasMoreElements()) {
+			try	{
+				st = new StringTokenizer(br.readLine());
+			}
+			catch (IOException  e) {
+				e.printStackTrace();
+			}
+		}
+		return st.nextToken();
+	}
+
+	int nextInt() {
+		return Integer.parseInt(next());
+	}
+
+	long nextLong() {
+		return Long.parseLong(next());
+	}
+
+	double nextDouble() {
+		return Double.parseDouble(next());
+	}
+
+	String nextLine() {
+		String str = "";
+		try {
+			str = br.readLine();
+		}
+		catch (IOException e) {
+			e.printStackTrace();
+		}
+		return str;
+	}
+}
+
+class Edge {
+	private final int x, y;
+	private final long r;
+	Edge(int x, int y, long r) {
+		this.x = x; this.y = y; this.r = r;
+	}
+	int getX() { return x; }
+	int getY() { return y; }
+	long getR() { return r; }
+}
+
+class Tuple {
+	int x, y;
+	Tuple(int x, int y) {
+		this.x = x; this.y = y;
+	}
+	
+	@Override
+	public int hashCode() {
+		final int prime = 31;
+		int result = prime * (x + y);
+		return result;
+	}
+	
+	@Override
+	public boolean equals(Object obj) {
+		if (this == obj)
+			return true;
+		if (obj == null)
+			return false;
+		if (getClass() != obj.getClass())
+			return false;
+		Tuple other = (Tuple) obj;
+		if ((x == other.x && y == other.y) || (x == other.y && y == other.x))
+			return true;
+		else 
+			return false;
+	}
+}
 
 class Node {
 	public final int id;
 
-	private Map<Node, Shortcut> shortcuts = new HashMap<>();
+	private List<Shortcut> shortcuts = new ArrayList<>();
 
 	private boolean visited = false;
-	private int distance = -1;	// distance from the starting node
+	private long distance = -1;	// distance from the starting node
 	
 	public Node(int id) {
 		this.id = id;
@@ -26,22 +114,20 @@ class Node {
 		return id;
 	}
 	
-	public int getDistance() {
+	public long getDistance() {
 		return distance;
 	}
 	
-	public void setDistance(int distance) {
+	public void setDistance(long distance) {
 		this.distance = distance;
 	}
 	
-	public Collection<Shortcut> getShortcuts() {
-		return shortcuts.values();
+	public List<Shortcut> getShortcuts() {
+		return shortcuts;
 	}
 	
 	public void addShortcut(Shortcut shortcut) {
-		Shortcut sc = shortcuts.get(shortcut.node);
-		if (sc == null || sc.getDistance() > shortcut.getDistance())
-			shortcuts.put(shortcut.node, shortcut);
+		shortcuts.add(shortcut);
 	}
 	
 	@Override
@@ -57,14 +143,14 @@ class Node {
 
 class Shortcut {
 	public final Node node;
-	public final int distance;	// pay attention whether you include originating node's value into here
+	public final long distance;	// pay attention whether you include originating node's value into here
 	
-	public Shortcut(Node node, int distance) {
+	public Shortcut(Node node, long distance) {
 		this.node = Objects.requireNonNull(node);
 		this.distance = distance;
 	}
 
-	public int getDistance() {
+	public long getDistance() {
 		return distance;
 	}
 
@@ -94,7 +180,7 @@ public class Solution {
 	 * @param startNode a node where to start search from
 	 */
 	public static void searchDijkstra(Node[] nodes, Node startNode) {
-		Comparator<Shortcut> byDistance = Comparator.comparingInt(Shortcut::getDistance);
+		Comparator<Shortcut> byDistance = Comparator.comparingLong(Shortcut::getDistance);
 		// It is not recommended to change fields by which PriorityQueue sorts after it was added to queue
 		// that's why using PriorityQueue<Shortcut> instead of PriorityQueue<Node>
 		// (node.distance will be changed)
@@ -111,7 +197,7 @@ public class Solution {
 				continue;
 			node.setVisited(true);
 
-			int distance = node.getDistance();	// distance from the starting node
+			long distance = node.getDistance();	// distance from the starting node
 			
 			// queue shortcuts
 			Collection<Shortcut> shortcuts = node.getShortcuts();
@@ -119,8 +205,8 @@ public class Solution {
 				for (Shortcut shortcut : shortcuts) {
 					Node child = shortcut.node;
 					if (!child.isVisited()) {	 
-						int newChildDistance = distance + shortcut.distance;
-						int childDistance = child.getDistance();
+						long newChildDistance = distance + shortcut.distance;
+						long childDistance = child.getDistance();
 						if (childDistance == -1 || newChildDistance < childDistance) {
 							child.setDistance(newChildDistance);
 							nextToVisit.add(new Shortcut(child, newChildDistance));
@@ -130,43 +216,58 @@ public class Solution {
 		}
 	}
     
-    public static void main(String[] args) throws IOException {
-    	
-        Scanner in = new Scanner(System.in);
-        int t = in.nextInt();
-        for(int a0 = 0; a0 < t; a0++){
-            int n = in.nextInt();
-            
+    public static void main(String[] args) {
+    	//long startTime = System.nanoTime();
+    	FastReader in=new FastReader();
+
+		int t = in.nextInt();
+        for(int i = 0; i < t; i++){
+    		int n = in.nextInt();
+    		int m = in.nextInt();
+    		
             Node[] nodes = IntStream.range(1, n + 1)
             	.mapToObj(Node::new)
             	.toArray(Node[]::new);
             
-            int m = in.nextInt();
-            for(int a1 = 0; a1 < m; a1++){
-                int x = in.nextInt();
-                int y = in.nextInt();
-                int r = in.nextInt();
-                
-                // nodes are 1-based while arrays of nodes is 0-based
-                nodes[x - 1].addShortcut(new Shortcut(nodes[y - 1], r));
-                nodes[y - 1].addShortcut(new Shortcut(nodes[x - 1], r));
+            List<Edge> edges = new ArrayList<>(m);
+            for(int j = 0; j < m; j++) {
+        		edges.add(new Edge(in.nextInt(), in.nextInt(), in.nextLong()));
             }
-            int s = in.nextInt();
+            
+            Map<Tuple, Optional<Edge>> mapEdges = edges.stream()
+          		  .collect(
+          				  groupingBy(
+          						  edge -> new Tuple(edge.getX(), edge.getY()), 
+          						  minBy(Comparator.comparingLong(Edge::getR)) 
+          			));
+            
+            
+            //ConcurrentMap<Integer, ConcurrentMap<Integer, Optional<Edge>>> map = edges.parallelStream()
+          	//	  .collect(groupingByConcurrent(Edge::getX, groupingByConcurrent(Edge::getY, minBy(Comparator.comparingInt(Edge::getR)) )));
+            
+            mapEdges.entrySet().stream().forEach(mapEntry -> {
+            	Tuple tuple = mapEntry.getKey();
+            	long r = mapEntry.getValue().get().getR();
+        		nodes[tuple.x - 1].addShortcut(new Shortcut(nodes[tuple.y - 1], r));
+                nodes[tuple.y - 1].addShortcut(new Shortcut(nodes[tuple.x - 1], r));
+            });
+            
+    		int s = in.nextInt();
             
             searchDijkstra(nodes, nodes[s - 1]);
             for (Node node : nodes)
             	if (node.id != s)
             		System.out.print(node.getDistance()+" ");
+            System.out.println();
             /*
             String resStr = Arrays.stream(nodes)
             	.filter(nd -> nd.id != s)
             	.sorted(Comparator.comparingInt(Node::getId))
-            	.mapToInt(Node::getDistance)
-            	.mapToObj(Integer::toString)
+            	.mapToLong(Node::getDistance)
+            	.mapToObj(Long::toString)
             	.collect(Collectors.joining(" "));
             */
-            System.out.println();
+            //System.out.println("Total time (ms): " + TimeUnit.MILLISECONDS.convert(System.nanoTime() - startTime, TimeUnit.NANOSECONDS));
         }
-        in.close();
     }
 }
