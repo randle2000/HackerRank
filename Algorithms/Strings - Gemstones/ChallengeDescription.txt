@@ -1,0 +1,32 @@
+https://www.hackerrank.com/challenges/gem-stones/problem
+John has collected various rocks. Each rock has various minerals embeded in it. Each type of mineral is designated by a lowercase letter in the range . There may be multiple occurrences of a mineral in a rock. A mineral is called a gemstone if it occurs at least once in each of the rocks in John's collection.
+
+Given a list of minerals embedded in each of John's rocks, display the number of types of gemstones he has in his collection.
+
+Input Format
+
+The first line consists of an integer , the number of rocks. 
+Each of the next  lines contains a string where each letter represents an occurence of a mineral in the current rock.
+
+Constraints
+
+ 
+ length of each composition  
+Each composition consists of only lower-case Latin letters ('a'-'z').
+
+Output Format
+
+Print the number of types of gemstones in John's collection. If there are none, print .
+
+Sample Input
+
+3
+abcdde
+baccd
+eeabg
+Sample Output
+
+2
+Explanation
+
+Only  and  are gemstones. They are the only types that occur in every rock.
