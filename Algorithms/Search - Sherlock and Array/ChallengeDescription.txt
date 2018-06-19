@@ -1,0 +1,38 @@
+https://www.hackerrank.com/challenges/sherlock-and-array/problem
+Watson gives Sherlock an array of integers. His challenge is to find an element of the array such that the sum of all elements to the left is equal to the sum of all elements to the right. For instance, given the array ,  is between two subarray that sum to . If your starting array is , that element satisfies the rule as left and right sum to .
+
+You will be given arrays of integers and must determine whether there is an element that meets the criterion.
+
+Input Format
+
+The first line contains , the number of test cases.
+
+The next  pairs of lines each represent a test case. 
+- The first line contains , the number of elements in the array . 
+- The second line for each test case contains  space-separated integers  where .
+
+Constraints
+
+ 
+ 
+ 
+
+Output Format
+
+For each test case print YES if there exists an element in the array, such that the sum of the elements on its left is equal to the sum of the elements on its right; otherwise print NO.
+
+Sample Input 0
+
+2
+3
+1 2 3
+4
+1 2 3 3
+Sample Output 0
+
+NO
+YES
+Explanation 0
+
+For the first test case, no such index exists. 
+For the second test case, , therefore index  satisfies the given conditions.
